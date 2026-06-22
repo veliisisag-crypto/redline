@@ -336,7 +336,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   const [barcodeMode, setBarcodeMode] = useState<"yeni" | "tekrar">("yeni");
   const [batchReportSort, setBatchReportSort] = useState<{col: string; dir: "asc"|"desc"}>({col: "batch", dir: "asc"});
   const [batchForm, setBatchForm] = useState({ batchId: "", productId: "", bought: "", buyPrice: "", salePrice: "", depo: "56salon" });
-  const [saleForm, setSaleForm] = useState({ customerId: "", productId: "", batchId: "", qty: "1", seller: "Rabia" as Seller, saleType: "Normal satış" as SaleType, paid: "false", customSalePrice: "", depo: "56salon" });
+  const [saleForm, setSaleForm] = useState({ customerId: "", productId: "", batchId: "", qty: "1", seller: "Rabia" as Seller, saleType: "Normal satış" as SaleType, customSalePrice: "", depo: "56salon" });
   const [periodForm, setPeriodForm] = useState({ name: `Dönem ${today()}`, sponsor: "0", rabia: "0", harun: "0", productCost: "0", shippingCost: "0" });
 
   const activeSales = sales.filter((sale) => !sale.cancelled);
@@ -657,7 +657,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     const saleRows = activeSales.map((sale) => ({
       id: `sale-${sale.id}`,
       date: sale.created_at,
-      type: sale.sale_type === "Fire/Bozuk" ? "Fire/Bozuk" : sale.paid ? "Peşin satış" : "Cari satış",
+      type: sale.sale_type === "Fire/Bozuk" ? "Fire/Bozuk" : "Peşin satış",
       customer: customerMap.get(sale.customer_id)?.name || "-",
       detail: `${productMap.get(sale.product_id)?.name || "-"} / ${batchMap.get(sale.batch_id)?.name || "-"} / ${sale.qty} adet`,
       amount: toNum(sale.total),
@@ -1062,8 +1062,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
         qty: take,
         total: totalPrice,
         cost: item.buy_price * take,
-        paid: saleForm.paid === "true" || isZeroPrice,
-        paid_amount: saleForm.paid === "true" || isZeroPrice ? totalPrice : 0,
+        paid: true,
+        paid_amount: totalPrice,
         cancelled: false,
       });
       remainingQty -= take;
@@ -1075,7 +1075,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     await logAction("Satış eklendi", "sales", `${customer.name} - ${product.name}`, { adet: qty, toplam: rows.reduce((sum, row) => sum + Number(row.total || 0), 0), satir_sayisi: rows.length });
 
     // Peşin satışlarda otomatik ödeme kaydı oluştur
-    if (saleForm.paid === "true" && insertedSales && insertedSales.length > 0) {
+    if (insertedSales && insertedSales.length > 0) {
       const totalPaid = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
       if (totalPaid > 0) {
         const { data: userData } = await supabase.auth.getUser();
@@ -1090,7 +1090,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     }
 
     try { await allocatePaymentsForCustomer(customer.id); } catch (err) { return showError(err); }
-    setSaleForm((prev) => ({ customerId: "", productId: "", batchId: "", qty: "1", seller: prev.seller, saleType: "Normal satış", paid: "false", customSalePrice: "", depo: prev.depo }));
+    setSaleForm((prev) => ({ customerId: "", productId: "", batchId: "", qty: "1", seller: prev.seller, saleType: "Normal satış", customSalePrice: "", depo: prev.depo }));
     setMessage("Satış kaydedildi.");
     loadAll();
     } finally {
@@ -1364,7 +1364,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     const depoBatchItems = batchItemsForProduct(product.id).filter((bi) => bi.depo === depo && Math.max(bi.bought - getBatchSoldQtyForItem(bi), 0) > 0);
     if (!depoBatchItems.length) return setMessage(`${product.name} için yeterli stok yok (${depo}).`);
     const batchItem = depoBatchItems[0];
-    const { error } = await supabase.from("sales").insert({ customer_id: po.customer_id, product_id: product.id, batch_item_id: batchItem.id, qty: item.qty, total: price * item.qty, cost: batchItem.buy_price * item.qty, seller, sale_type: "Normal satış", paid: convertPaid === "true", paid_amount: convertPaid === "true" ? price * item.qty : 0, depo, user_email: currentUserEmail });
+    const { error } = await supabase.from("sales").insert({ customer_id: po.customer_id, product_id: product.id, batch_item_id: batchItem.id, qty: item.qty, total: price * item.qty, cost: batchItem.buy_price * item.qty, seller, sale_type: "Normal satış", paid: true, paid_amount: price * item.qty, depo, user_email: currentUserEmail });
     if (error) return showError(error);
     // Bu item'ı sil
     await supabase.from("preorder_items").delete().eq("id", item.id);
@@ -1806,7 +1806,6 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
               <div onClick={() => setShowTahsilatDetay(true)} style={{cursor:"pointer"}}>
                 <StatCard title="Dönem Tahsilatları" value={money(totals.grossCash)} note="Detay için tıklayın ↗" />
               </div>
-              <StatCard title="Müşteri Borcu" value={money(totals.customerDebt)} note="Cari satış - ödeme" />
               <div onClick={() => setShowKarDetay(true)} style={{cursor:"pointer"}}>
                 <StatCard title="Dönem Net Karı" value={money(anlıkKar)} note="Detay için tıklayın ↗" />
               </div>
@@ -2889,7 +2888,6 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                   <option>Normal satış</option><option>Fire/Bozuk</option><option>Hibe</option>
                 </select>
                 <input className="input" type="number" min="0" placeholder="Satış fiyatı" value={saleForm.customSalePrice} onChange={(e) => setSaleForm({ ...saleForm, customSalePrice: e.target.value })} />
-                <select className="input" value={saleForm.paid} onChange={(e) => setSaleForm({ ...saleForm, paid: e.target.value })}><option value="false">Cari borç olarak yaz</option><option value="true">Ödeme alındı</option></select>
                 <button type="button" className="btn" onClick={addSaleFromForm} disabled={saleLoading}>{saleLoading ? "Kaydediliyor..." : "Satışı Kaydet"}</button>
               </div>
             </Card>
@@ -2926,7 +2924,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                     isEditing
                       ? <span key="profit" className={(Number(draft.total||0) - Number(draft.cost||0)) < 0 ? "text-red-600" : ""}>{money(Number(draft.total||0) - Number(draft.cost||0))}</span>
                       : <span key={sale.id} className={sale.total - sale.cost < 0 ? "text-red-600" : ""}>{money(sale.total - sale.cost)}</span>,
-                    isEditing ? <select key="paid" className="input" value={draft.paid ? "true" : "false"} onChange={(e) => setSaleDrafts((p) => ({ ...p, [sale.id]: { ...p[sale.id], paid: e.target.value === "true" } }))}><option value="false">Cari borç</option><option value="true">Ödendi</option></select> : getSaleStatus(sale),
+                    getSaleStatus(sale),
                     isEditing
                       ? <div key="actions" className="flex gap-2"><button type="button" className="btn" onClick={() => saveSaleEdit(sale.id)}>Kaydet</button><button type="button" className="btn-secondary" onClick={() => cancelSaleEdit(sale.id)}>Vazgeç</button></div>
                       : <div key="actions" className="flex gap-2"><button type="button" className="btn-secondary" onClick={() => startSaleEdit(sale)}>Değiştir</button><button type="button" className="btn-danger" onClick={() => deleteSale(sale.id)}>Sil</button></div>,
@@ -3043,7 +3041,6 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                 <div className="rounded-xl bg-slate-100 p-4">Kasadaki para<br /><b>{money(totals.cash)}</b></div>
                 <div className="rounded-xl bg-slate-100 p-4">Rabia payı<br /><b>{money(totals.cash / 2)}</b></div>
                 <div className="rounded-xl bg-slate-100 p-4">Harun payı<br /><b>{money(totals.cash / 2)}</b></div>
-                <div className="rounded-xl bg-slate-100 p-4">Müşteri cari<br /><b>{money(totals.customerDebt)}</b></div>
               </div>
               <button type="button" className="btn" onClick={closePeriod}>Dönemi Kapat ve Mahsuplaştır</button>
             </Card>
