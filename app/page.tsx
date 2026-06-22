@@ -2120,6 +2120,33 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                                   Satış Detayı
                                 </button>
+                                <button type="button" className="product-btn product-btn--secondary" onClick={() => {
+                                  const items = batchItems.filter((i) => i.product_id === p.id);
+                                  if (!items.length) return setMessage("Bu ürüne ait parti kaydı yok.");
+                                  if (items.length === 1) {
+                                    const item = items[0];
+                                    setBarcodeModal({ item, productName: p.name, batchName: batchMap.get(item.batch_id)?.name || "-" });
+                                    setBarcodeQty(String(item.bought));
+                                    setBarcodeMode(item.barcode ? "tekrar" : "yeni");
+                                  } else {
+                                    // Birden fazla parti var, kullanıcıya seçtir
+                                    const options = items.map((i) => `${batchMap.get(i.batch_id)?.name || i.batch_id} (${i.depo || "?"}, ${i.bought} adet)`).join("\n");
+                                    const idx = items.findIndex((i) => {
+                                      const name = prompt(`Hangi parti?\n\n${items.map((i2, n) => `${n+1}. ${batchMap.get(i2.batch_id)?.name || "-"} - ${i2.depo} (${i2.bought} adet)`).join("\n")}\n\nNumara girin:`);
+                                      return name !== null;
+                                    });
+                                    const chosen = (() => {
+                                      const name = prompt(`Parti seçin (numara girin):\n${items.map((i2, n) => `${n+1}. ${batchMap.get(i2.batch_id)?.name || "-"} - ${i2.depo} (${i2.bought} adet)`).join("\n")}`);
+                                      const n = Number(name);
+                                      return items[n - 1] || items[items.length - 1];
+                                    })();
+                                    setBarcodeModal({ item: chosen, productName: p.name, batchName: batchMap.get(chosen.batch_id)?.name || "-" });
+                                    setBarcodeQty(String(chosen.bought));
+                                    setBarcodeMode(chosen.barcode ? "tekrar" : "yeni");
+                                  }
+                                }}>
+                                  🖨 Barkod Bas
+                                </button>
                                 <button type="button" className="product-btn product-btn--danger" onClick={() => deleteProduct(p.id)}>
                                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                                   Pasife Al
