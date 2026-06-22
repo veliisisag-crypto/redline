@@ -31,7 +31,7 @@ function AuditSection({ supabase }: { supabase: typeof import("@/lib/supabase").
 }
 
 
-type SaleType = "Normal satış" | "Fire/Bozuk" | "Hibe";
+type SaleType = "Normal satış" | "Fire/Bozuk" | "İç Kullanım";
 type Seller = string;
 
 type AppUser = {
@@ -119,6 +119,7 @@ type Payment = {
   customer_id: string;
   amount: number;
   cancelled?: boolean;
+  note?: string | null;
   created_at: string;
   user_email?: string | null;
 };
@@ -569,7 +570,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       const hasEkMaliyet = EK_MALIYET_PARTILER.some(p => normalizedBatch === p);
       const ekMaliyet = hasEkMaliyet ? EK_MALIYET : 0;
 
-      if (sale.sale_type === "Hibe") {
+      if (sale.sale_type === "İç Kullanım") {
         return toplam - (cost + ekMaliyet);
       }
 
@@ -601,9 +602,9 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
         const normalizedBatch = batchName.toLowerCase().replace(/\s/g, "");
         const hasEkMaliyet = EK_MALIYET_PARTILER.some(p => normalizedBatch === p);
         const ekMaliyet = hasEkMaliyet ? EK_MALIYET : 0;
-        const oran = sale.sale_type === "Hibe" ? 1 : (total > 0 ? alloc.amount / total : 1);
+        const oran = sale.sale_type === "İç Kullanım" ? 1 : (total > 0 ? alloc.amount / total : 1);
         const gercekMaliyet = (cost + ekMaliyet) * oran;
-        const kar = sale.sale_type === "Hibe" ? -(cost + ekMaliyet) : alloc.amount - gercekMaliyet;
+        const kar = sale.sale_type === "İç Kullanım" ? -(cost + ekMaliyet) : alloc.amount - gercekMaliyet;
         return {
           tarih: alloc.created_at,
           cari: customerMap.get(sale.customer_id)?.name || "-",
@@ -1049,7 +1050,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       const available = Math.max(item.bought - getBatchSoldQtyForItem(item), 0);
       const take = Math.min(available, remainingQty);
       if (take <= 0) continue;
-      const isZeroPrice = saleForm.saleType === "Hibe" || saleForm.saleType === "Fire/Bozuk";
+      const isZeroPrice = saleForm.saleType === "İç Kullanım" || saleForm.saleType === "Fire/Bozuk";
       const totalPrice = isZeroPrice ? 0 : Number(saleForm.customSalePrice || 0);
       rows.push({
         customer_id: customer.id,
@@ -1069,9 +1070,25 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     }
 
     if (remainingQty > 0) return setMessage("Parti stokları yetersiz.");
-    const { error } = await supabase.from("sales").insert(rows);
+    const { data: insertedSales, error } = await supabase.from("sales").insert(rows).select();
     if (error) return showError(error);
     await logAction("Satış eklendi", "sales", `${customer.name} - ${product.name}`, { adet: qty, toplam: rows.reduce((sum, row) => sum + Number(row.total || 0), 0), satir_sayisi: rows.length });
+
+    // Peşin satışlarda otomatik ödeme kaydı oluştur
+    if (saleForm.paid === "true" && insertedSales && insertedSales.length > 0) {
+      const totalPaid = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+      if (totalPaid > 0) {
+        const { data: userData } = await supabase.auth.getUser();
+        const { error: payErr } = await supabase.from("payments").insert({
+          customer_id: customer.id,
+          amount: totalPaid,
+          user_email: userData.user?.email || null,
+          note: `Peşin satış - ${product.name}`,
+        });
+        if (payErr) return showError(payErr);
+      }
+    }
+
     try { await allocatePaymentsForCustomer(customer.id); } catch (err) { return showError(err); }
     setSaleForm((prev) => ({ customerId: "", productId: "", batchId: "", qty: "1", seller: prev.seller, saleType: "Normal satış", paid: "false", customSalePrice: "", depo: prev.depo }));
     setMessage("Satış kaydedildi.");
@@ -2750,10 +2767,10 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                   </thead>
                   <tbody>
                     {[...karDetay].sort((a,b) => new Date(b.tarih).getTime() - new Date(a.tarih).getTime()).map((row, i) => (
-                      <tr key={i} style={{borderBottom:"1px solid #f1f5f9",background:row.saleType==="Hibe"?"#fef9c3":"white"}}>
+                      <tr key={i} style={{borderBottom:"1px solid #f1f5f9",background:row.saleType==="İç Kullanım"?"#fef9c3":"white"}}>
                         <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{toTR(row.tarih, true)}</td>
                         <td style={{padding:"7px 10px",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.cari}</td>
-                        <td style={{padding:"7px 10px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.urun} {row.saleType==="Hibe"?<span style={{fontSize:"0.7rem",color:"#92400e"}}>(Hibe)</span>:null}</td>
+                        <td style={{padding:"7px 10px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.urun} {row.saleType==="İç Kullanım"?<span style={{fontSize:"0.7rem",color:"#92400e"}}>(İç Kullanım)</span>:null}</td>
                         <td style={{padding:"7px 10px",textAlign:"right"}}>{row.adet}</td>
                         <td style={{padding:"7px 10px",textAlign:"right"}}>{money(row.satisFiyati)}</td>
                         <td style={{padding:"7px 10px",textAlign:"right"}}>{money(row.tahsilat)}</td>
@@ -2867,7 +2884,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                 </select>
                 <select className="input" value={saleForm.saleType} onChange={(e) => {
                   const t = e.target.value as SaleType;
-                  setSaleForm({ ...saleForm, saleType: t, customSalePrice: (t === "Fire/Bozuk" || t === "Hibe") ? "0" : saleForm.customSalePrice });
+                  setSaleForm({ ...saleForm, saleType: t, customSalePrice: (t === "Fire/Bozuk" || t === "İç Kullanım") ? "0" : saleForm.customSalePrice });
                 }}>
                   <option>Normal satış</option><option>Fire/Bozuk</option><option>Hibe</option>
                 </select>
@@ -2902,7 +2919,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                     isEditing ? <select key="seller" className="input" value={draft.seller} onChange={(e) => setSaleDrafts((p) => ({ ...p, [sale.id]: { ...p[sale.id], seller: e.target.value as Seller } }))}>
                         {appUsers.filter((u) => u.active && u.role !== "admin").map((u) => <option key={u.id}>{u.name}</option>)}
                       </select> : sale.seller,
-                    isEditing ? <select key="type" className="input" value={draft.sale_type} onChange={(e) => { const t = e.target.value as SaleType; setSaleDrafts((p) => ({ ...p, [sale.id]: { ...p[sale.id], sale_type: t, total: (t === "Fire/Bozuk" || t === "Hibe") ? "0" : p[sale.id].total } })); }}><option>Normal satış</option><option>Fire/Bozuk</option><option>Hibe</option></select> : sale.sale_type,
+                    isEditing ? <select key="type" className="input" value={draft.sale_type} onChange={(e) => { const t = e.target.value as SaleType; setSaleDrafts((p) => ({ ...p, [sale.id]: { ...p[sale.id], sale_type: t, total: (t === "Fire/Bozuk" || t === "İç Kullanım") ? "0" : p[sale.id].total } })); }}><option>Normal satış</option><option>Fire/Bozuk</option><option>Hibe</option></select> : sale.sale_type,
                     isEditing ? <input key="qty" className="input" style={{width:64}} type="number" min="1" value={draft.qty} onChange={(e) => setSaleDrafts((p) => ({ ...p, [sale.id]: { ...p[sale.id], qty: e.target.value } }))} /> : sale.qty,
                     isEditing ? <input key="total" className="input" style={{width:100}} type="number" min="0" value={draft.total} onChange={(e) => setSaleDrafts((p) => ({ ...p, [sale.id]: { ...p[sale.id], total: e.target.value } }))} /> : money(sale.total),
                     isEditing ? <input key="cost" className="input" style={{width:100}} type="number" min="0" value={draft.cost} onChange={(e) => setSaleDrafts((p) => ({ ...p, [sale.id]: { ...p[sale.id], cost: e.target.value } }))} /> : money(sale.cost),
