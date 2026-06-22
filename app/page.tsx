@@ -1072,6 +1072,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     const { error } = await supabase.from("sales").insert(rows);
     if (error) return showError(error);
     await logAction("Satış eklendi", "sales", `${customer.name} - ${product.name}`, { adet: qty, toplam: rows.reduce((sum, row) => sum + Number(row.total || 0), 0), satir_sayisi: rows.length });
+    try { await allocatePaymentsForCustomer(customer.id); } catch (err) { return showError(err); }
     setSaleForm((prev) => ({ customerId: "", productId: "", batchId: "", qty: "1", seller: prev.seller, saleType: "Normal satış", paid: "false", customSalePrice: "", depo: prev.depo }));
     setMessage("Satış kaydedildi.");
     loadAll();
