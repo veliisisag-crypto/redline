@@ -334,6 +334,12 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   } | null>(null);
   const [barcodeQty, setBarcodeQty] = useState("");
   const [barcodeMode, setBarcodeMode] = useState<"yeni" | "tekrar">("yeni");
+  // Kamera/tarama state
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scannerControlsRef = useRef<{ stop: () => void } | null>(null);
   const [batchReportSort, setBatchReportSort] = useState<{col: string; dir: "asc"|"desc"}>({col: "batch", dir: "asc"});
   const [batchForm, setBatchForm] = useState({ batchId: "", productId: "", bought: "", buyPrice: "", salePrice: "", depo: "56salon" });
   const [saleForm, setSaleForm] = useState({ customerId: "", productId: "", batchId: "", qty: "1", seller: "Rabia" as Seller, saleType: "Normal satış" as SaleType, customSalePrice: "", depo: "56salon" });
@@ -876,6 +882,73 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     setBatchForm({ batchId, productId: "", bought: "", buyPrice: "", salePrice: "", depo: "56salon" });
     setMessage("Parti ürün kaydı eklendi.");
     loadAll();
+  };
+
+  // Kamera tarayıcıyı başlat
+  const startScanner = async () => {
+    setScannerError("");
+    setScanning(true);
+    try {
+      const { BrowserMultiFormatReader } = await import("@zxing/browser");
+      const codeReader = new BrowserMultiFormatReader();
+      const videoEl = videoRef.current;
+      if (!videoEl) return;
+
+      const controls = await codeReader.decodeFromConstraints(
+        { video: { facingMode: "environment" } },
+        videoEl,
+        (result, err) => {
+          if (result) {
+            const barcodeValue = result.getText();
+            handleBarcodeScanned(barcodeValue);
+            controls.stop();
+            setScannerOpen(false);
+            setScanning(false);
+          }
+        }
+      );
+      scannerControlsRef.current = controls;
+    } catch (err) {
+      setScannerError("Kamera açılamadı. Tarayıcı iznini kontrol edin.");
+      setScanning(false);
+    }
+  };
+
+  const stopScanner = () => {
+    try { scannerControlsRef.current?.stop(); } catch {}
+    scannerControlsRef.current = null;
+    // Video stream'i de kapat
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setScannerOpen(false);
+    setScanning(false);
+    setScannerError("");
+  };
+
+  // Taranan barkodu işle
+  const handleBarcodeScanned = (barcodeValue: string) => {
+    // batch_items içinde barkodu ara
+    const item = batchItems.find((i) => i.barcode === barcodeValue);
+    if (!item) {
+      setMessage(`Barkod bulunamadı: ${barcodeValue}`);
+      return;
+    }
+    const product = products.find((p) => p.id === item.product_id);
+    if (!product) {
+      setMessage("Ürün bulunamadı.");
+      return;
+    }
+    // Satış formuna otomatik doldur
+    setSaleForm((prev) => ({
+      ...prev,
+      productId: product.id,
+      batchId: item.id,
+      depo: item.depo || prev.depo,
+    }));
+    setMessage(`✅ ${product.name} seçildi — adet ve müşteri girin.`);
   };
 
   // Benzersiz barkod üret
@@ -2368,6 +2441,34 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
           </div>
         )}
 
+        {/* Kamera Tarama Modalı */}
+        {scannerOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+            <div className="w-full max-w-sm rounded-2xl bg-black p-4 shadow-xl">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">📷 Barkod Tara</h3>
+                <button type="button" className="rounded-full bg-white/20 px-3 py-1 text-sm text-white" onClick={stopScanner}>Kapat</button>
+              </div>
+              {scannerError ? (
+                <div className="rounded-xl bg-red-900/50 p-4 text-center text-sm text-red-300">{scannerError}</div>
+              ) : (
+                <div className="relative overflow-hidden rounded-xl" style={{ aspectRatio: "1/1" }}>
+                  <video ref={videoRef} className="h-full w-full object-cover" autoPlay playsInline muted />
+                  {/* Hedef kare */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-48 w-48 rounded-2xl border-4 border-white/60" style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)" }} />
+                  </div>
+                  {scanning && (
+                    <div className="absolute bottom-4 left-0 right-0 text-center text-sm text-white/80">
+                      QR kodu çerçeve içine alın...
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Barkod Modal */}
         {barcodeModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -2833,7 +2934,12 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
         {active === "sales" && (
           <div className="space-y-4">
             <Card title="Yeni Satış Girişi">
-              <p className="mb-5 text-slate-500">Satış girebilmek için önce cari kaydı ve ürün kaydı var olmalıdır.</p>
+              <div className="mb-4 flex items-center gap-3">
+                <p className="flex-1 text-slate-500">Satış girebilmek için önce cari kaydı ve ürün kaydı var olmalıdır.</p>
+                <button type="button" className="btn-secondary flex items-center gap-2 whitespace-nowrap" onClick={() => { setScannerOpen(true); setTimeout(startScanner, 300); }}>
+                  📷 Barkod Tara
+                </button>
+              </div>
               <div className="grid gap-3 md:grid-cols-4">
                 <select className="input" value={saleForm.customerId} onChange={(e) => setSaleForm({ ...saleForm, customerId: e.target.value })}>
                   <option value="">Cari seçin</option>
