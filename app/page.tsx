@@ -1146,22 +1146,13 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     }
 
     const pdfBlob = doc.output("blob");
-    const pdfFile = new File([pdfBlob], `barkod-${productName.substring(0, 15)}.pdf`, { type: "application/pdf" });
-
-    // Web Share API ile paylaş (mobil)
-    if (navigator.share && navigator.canShare?.({ files: [pdfFile] })) {
-      try {
-        await navigator.share({ files: [pdfFile], title: `${productName} Barkod` });
-        return;
-      } catch {}
-    }
-
-    // Fallback: indir
     const url = URL.createObjectURL(pdfBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = pdfFile.name;
+    a.download = `barkod-${productName.substring(0, 15)}.pdf`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
