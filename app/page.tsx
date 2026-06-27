@@ -1103,46 +1103,54 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     const QRCode = (await import("qrcode")).default;
     const { jsPDF } = await import("jspdf");
 
-    // 30x30mm etiket boyutu
-    const labelMm = 30;
-    // Her sayfada 1 etiket — Phomemo M110 için ideal
-    const doc = new jsPDF({ unit: "mm", format: [labelMm, labelMm * qty + 2 * (qty - 1)], orientation: "portrait" });
+    // 30x30mm @ 10px/mm = 300px per etiket
+    const pxPerMm = 10;
+    const labelPx = 30 * pxPerMm; // 300px
 
-    // QR kod üret — yüksek çözünürlük
-    const qrCanvas = document.createElement("canvas");
-    await QRCode.toCanvas(qrCanvas, barcodeValue, {
-      width: 400,
-      margin: 1,
-      errorCorrectionLevel: "H",
-      color: { dark: "#000000", light: "#ffffff" },
-    });
-    const qrDataUrl = qrCanvas.toDataURL("image/png");
+    const doc = new jsPDF({ unit: "mm", format: [30, 30], orientation: "portrait" });
 
     for (let i = 0; i < qty; i++) {
-      if (i > 0) doc.addPage([labelMm, labelMm]);
-      const yOffset = 0;
+      if (i > 0) doc.addPage([30, 30]);
+
+      // Canvas ile etiket çiz
+      const canvas = document.createElement("canvas");
+      canvas.width = labelPx;
+      canvas.height = labelPx;
+      const ctx = canvas.getContext("2d")!;
 
       // Beyaz zemin
-      doc.setFillColor(255, 255, 255);
-      doc.rect(0, yOffset, labelMm, labelMm, "F");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, labelPx, labelPx);
 
-      // QR kod — ortala
-      const qrMm = 22;
-      const qrX = (labelMm - qrMm) / 2;
-      doc.addImage(qrDataUrl, "PNG", qrX, yOffset + 1, qrMm, qrMm);
+      // QR kod üret
+      const qrCanvas = document.createElement("canvas");
+      await QRCode.toCanvas(qrCanvas, barcodeValue, {
+        width: 220, margin: 1,
+        errorCorrectionLevel: "H",
+        color: { dark: "#000000", light: "#ffffff" },
+      });
 
-      // Ürün adı
-      doc.setFontSize(4.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(0, 0, 0);
-      const shortName = productName.length > 22 ? productName.substring(0, 22) + "…" : productName;
-      doc.text(shortName, labelMm / 2, yOffset + 25, { align: "center" });
+      // QR'ı ortala — üstte
+      const qrSize = 210;
+      const qrX = (labelPx - qrSize) / 2;
+      const qrY = 10;
+      ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
 
-      // Barkod kodu
-      doc.setFontSize(3.5);
-      doc.setFont("courier", "normal");
-      doc.setTextColor(120, 120, 120);
-      doc.text(barcodeValue.substring(0, 20), labelMm / 2, yOffset + 28.5, { align: "center" });
+      // Ürün adı — Türkçe karakterler canvas'ta sorunsuz
+      ctx.font = "bold 18px Arial, sans-serif";
+      ctx.fillStyle = "#000000";
+      ctx.textAlign = "center";
+      const shortName = productName.length > 20 ? productName.substring(0, 20) + "…" : productName;
+      ctx.fillText(shortName, labelPx / 2, qrY + qrSize + 22);
+
+      // Barkod değeri
+      ctx.font = "13px monospace";
+      ctx.fillStyle = "#888888";
+      ctx.fillText(barcodeValue.substring(0, 20), labelPx / 2, qrY + qrSize + 42);
+
+      // Canvas'ı PDF'e ekle
+      const imgData = canvas.toDataURL("image/png", 1.0);
+      doc.addImage(imgData, "PNG", 0, 0, 30, 30);
     }
 
     const pdfBlob = doc.output("blob");
