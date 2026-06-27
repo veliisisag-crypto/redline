@@ -401,9 +401,9 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   };
 
   const showToast = (msg: string, type: "success" | "error" | "info" = "info") => {
-    showToast(msg, "info");
+    setMessage(msg);
     setToastType(type);
-    setTimeout(() => showToast(""), 4000, "info");
+    setTimeout(() => setMessage(""), 4000);
   };
 
   const loadAll = async () => {
@@ -1052,10 +1052,18 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
         (result, err) => {
           if (result) {
             const barcodeValue = result.getText();
-            handleBarcodeScanned(barcodeValue);
-            controls.stop();
+            // Önce kamerayı kapat
+            try { controls.stop(); } catch {}
+            if (videoEl.srcObject) {
+              const stream = videoEl.srcObject as MediaStream;
+              stream.getTracks().forEach((t) => t.stop());
+              videoEl.srcObject = null;
+            }
+            scannerControlsRef.current = null;
             setScannerOpen(false);
             setScanning(false);
+            // Sonra barkodu işle
+            handleBarcodeScanned(barcodeValue);
           }
         }
       );
@@ -1143,17 +1151,32 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       const qrY = 18;
       ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
 
-      // Ürün adı — Türkçe karakterler canvas'ta sorunsuz
-      ctx.font = "bold 18px Arial, sans-serif";
+      // Ürün adı — çok satırlı, tüm alanı kullan
+      ctx.font = "bold 20px Arial, sans-serif";
       ctx.fillStyle = "#000000";
       ctx.textAlign = "center";
-      const shortName = productName.length > 20 ? productName.substring(0, 20) + "…" : productName;
-      ctx.fillText(shortName, labelPx / 2, qrY + qrSize + 22);
+      
+      // Kelime kelime satır sar
+      const words = productName.split(" ");
+      const maxWidth = labelPx - 20;
+      const lineHeight = 24;
+      const lines: string[] = [];
+      let currentLine = "";
+      for (const word of words) {
+        const testLine = currentLine ? currentLine + " " + word : word;
+        if (ctx.measureText(testLine).width > maxWidth && currentLine) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      }
+      if (currentLine) lines.push(currentLine);
 
-      // Barkod değeri
-      ctx.font = "13px monospace";
-      ctx.fillStyle = "#888888";
-      ctx.fillText(barcodeValue.substring(0, 20), labelPx / 2, qrY + qrSize + 42);
+      const textStartY = qrY + qrSize + 22;
+      lines.forEach((line, idx) => {
+        ctx.fillText(line, labelPx / 2, textStartY + idx * lineHeight);
+      });
 
       // Canvas'ı PDF'e ekle
       const imgData = canvas.toDataURL("image/png", 1.0);
