@@ -347,7 +347,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   // QR önizleme ve barkod kontrol
   const [qrPreview, setQrPreview] = useState<{ productName: string; barcode: string; dataUrl: string } | null>(null);
   const [barcodeCheckOpen, setBarcodeCheckOpen] = useState(false);
-  const [barcodeCheckResult, setBarcodeCheckResult] = useState<{ found: boolean; productName?: string; batchName?: string; depo?: string; barcode?: string } | null>(null);
+  const [barcodeCheckResult, setBarcodeCheckResult] = useState<{ found: boolean; productName?: string; batchName?: string; depo?: string; barcode?: string; salePrice?: number } | null>(null);
   const barcodeCheckVideoRef = useRef<HTMLVideoElement>(null);
   const barcodeCheckControlsRef = useRef<{ stop: () => void } | null>(null);
   // Kameradan resim çek
@@ -357,7 +357,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   const photoStreamRef = useRef<MediaStream | null>(null);
   const [batchReportSort, setBatchReportSort] = useState<{col: string; dir: "asc"|"desc"}>({col: "batch", dir: "asc"});
   const [batchForm, setBatchForm] = useState({ batchId: "", productId: "", bought: "", buyPrice: "", salePrice: "", depo: "56salon" });
-  const [saleForm, setSaleForm] = useState({ customerId: "", productId: "", batchId: "", qty: "1", seller: "Rabia" as Seller, saleType: "Normal satış" as SaleType, customSalePrice: "", depo: "56salon" });
+  const [saleForm, setSaleForm] = useState({ customerId: "", productId: "", batchId: "", qty: "1", seller: "Rabia" as Seller, saleType: "Normal satış" as SaleType, depo: "56salon" });
   const [periodForm, setPeriodForm] = useState({ name: `Dönem ${today()}`, sponsor: "0", rabia: "0", harun: "0", productCost: "0", shippingCost: "0" });
 
   const activeSales = sales.filter((sale) => !sale.cancelled);
@@ -939,6 +939,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     if (!productId) return showToast("Parti kaydı için kaynak ürün seçmelisiniz.", "error");
     if (!batchId) return showToast("Parti adı zorunlu.", "error");
     if (bought <= 0 || buyPrice <= 0) return showToast("Adet ve alış fiyatı 0'dan büyük olmalı.", "error");
+    if (salePrice <= 0) return showToast("Satış fiyatı zorunludur, 0 olamaz.", "error");
 
     const { error } = await supabase.from("batch_items").insert({
       product_id: productId,
@@ -1029,6 +1030,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                 batchName: item ? batchMap.get(item.batch_id)?.name || "-" : "-",
                 depo: item?.depo || "-",
                 barcode: barcodeValue,
+                salePrice: item?.sale_price || 0,
               });
             } else {
               setBarcodeCheckResult({ found: false, barcode: barcodeValue });
@@ -1287,11 +1289,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     const qty = Number(saleForm.qty || 0);
     if (!customer || !product || qty <= 0) return showToast("Cari, ürün ve adet zorunlu.", "error");
     
-    // Normal satışta fiyat 0 olamaz
     const isZeroType = saleForm.saleType === "İç Kullanım" || saleForm.saleType === "Fire/Bozuk";
-    if (!isZeroType && (!saleForm.customSalePrice || Number(saleForm.customSalePrice) <= 0)) {
-      return showToast("Normal satışta fiyat 0 olamaz.", "error");
-    }
+
     // Depo bazlı stok kontrolü
     const depoStock = batchItemsForProduct(product.id)
       .filter((i) => i.depo === saleForm.depo)
@@ -1301,7 +1300,6 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     let remainingQty = qty;
     const rows: Record<string, unknown>[] = [];
 
-    // Filter by depo and batch if selected - strictly match depo
     const availableItems = batchItemsForProduct(product.id).filter((item) => {
       const matchDepo = saleForm.depo ? item.depo === saleForm.depo : true;
       const matchBatch = !saleForm.batchId || item.batch_id === saleForm.batchId;
@@ -1313,8 +1311,12 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       const available = Math.max(item.bought - getBatchSoldQtyForItem(item), 0);
       const take = Math.min(available, remainingQty);
       if (take <= 0) continue;
-      const isZeroPrice = saleForm.saleType === "İç Kullanım" || saleForm.saleType === "Fire/Bozuk";
-      const totalPrice = isZeroPrice ? 0 : Number(saleForm.customSalePrice || 0);
+      // Fiyatı batch_item'dan al, fire/iç kullanım ise 0
+      const unitPrice = isZeroType ? 0 : item.sale_price;
+      if (!isZeroType && (!unitPrice || unitPrice <= 0)) {
+        return showToast("Bu ürünün satış fiyatı tanımlı değil. Parti girişinden fiyat ekleyin.", "error");
+      }
+      const totalPrice = unitPrice * take;
       rows.push({
         customer_id: customer.id,
         product_id: product.id,
@@ -1353,7 +1355,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     }
 
     try { await allocatePaymentsForCustomer(customer.id); } catch (err) { return showError(err); }
-    setSaleForm((prev) => ({ customerId: "", productId: "", batchId: "", qty: "1", seller: prev.seller, saleType: "Normal satış", customSalePrice: "", depo: prev.depo }));
+    setSaleForm((prev) => ({ customerId: "", productId: "", batchId: "", qty: "1", seller: prev.seller, saleType: "Normal satış", depo: prev.depo }));
     showToast("Satış kaydedildi.", "success");
     setProcessing(false);
     loadAll();
@@ -2122,7 +2124,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
           <button type="button" onClick={onLogout} className="rounded-xl px-3 py-2 bg-white text-red-600 font-semibold col-span-1">
             Çıkış
           </button>
-          <button type="button" onClick={() => { setScannerOpen(true); setTimeout(startScanner, 300); }} className="rounded-xl px-3 py-2 bg-blue-50 text-blue-600 font-semibold col-span-1">
+          <button type="button" onClick={() => { setBarcodeCheckOpen(true); setTimeout(startBarcodeCheck, 300); }} className="rounded-xl px-3 py-2 bg-blue-50 text-blue-600 font-semibold col-span-1">
             📷 QR Tara
           </button>
         </div>
@@ -2782,6 +2784,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                     <>
                       <div className="text-2xl text-center mb-3">✅</div>
                       <div className="text-white font-bold text-lg text-center mb-2">{barcodeCheckResult.productName}</div>
+                      <div className="text-green-100 font-bold text-3xl text-center my-3">₺{(barcodeCheckResult.salePrice || 0).toLocaleString("tr-TR")}</div>
                       <div className="text-green-300 text-sm text-center">Parti: {barcodeCheckResult.batchName}</div>
                       <div className="text-green-300 text-sm text-center">Depo: {barcodeCheckResult.depo}</div>
                       <div className="text-green-200/50 text-xs text-center mt-2 font-mono">{barcodeCheckResult.barcode}</div>
@@ -3349,13 +3352,10 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                 </select>
                 <select className="input" value={saleForm.saleType} onChange={(e) => {
                   const t = e.target.value as SaleType;
-                  setSaleForm({ ...saleForm, saleType: t, customSalePrice: (t === "Fire/Bozuk" || t === "İç Kullanım") ? "0" : saleForm.customSalePrice });
+                  setSaleForm({ ...saleForm, saleType: t });
                 }}>
                   <option>Normal satış</option><option>Fire/Bozuk</option><option>İç Kullanım</option>
                 </select>
-                {saleForm.saleType === "Normal satış" && (
-                  <input className="input" type="number" min="0" placeholder="Satış fiyatı" value={saleForm.customSalePrice} onChange={(e) => setSaleForm({ ...saleForm, customSalePrice: e.target.value })} />
-                )}
                 <button type="button" className="btn" onClick={addSaleFromForm} disabled={saleLoading}>{saleLoading ? "Kaydediliyor..." : "Satışı Kaydet"}</button>
               </div>
             </Card>
