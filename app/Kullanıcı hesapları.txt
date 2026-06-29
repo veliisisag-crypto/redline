@@ -7,5 +7,5 @@ anil@redline.com     Türkiş**54&
 
 git status
 git add .
-git commit -m "page update 28"
+git commit -m "page update 33"
 git push

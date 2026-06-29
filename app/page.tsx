@@ -1014,7 +1014,18 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     setBarcodeCheckResult(null);
     try {
       const { BrowserMultiFormatReader } = await import("@zxing/browser");
-      const codeReader = new BrowserMultiFormatReader();
+      const { DecodeHintType, BarcodeFormat } = await import("@zxing/library");
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.QR_CODE,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.UPC_A,
+      ]);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+      const codeReader = new BrowserMultiFormatReader(hints);
       const videoEl = barcodeCheckVideoRef.current;
       if (!videoEl) return;
       const controls = await codeReader.decodeFromConstraints(
@@ -1066,7 +1077,18 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     setScanning(true);
     try {
       const { BrowserMultiFormatReader } = await import("@zxing/browser");
-      const codeReader = new BrowserMultiFormatReader();
+      const { DecodeHintType, BarcodeFormat } = await import("@zxing/library");
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.QR_CODE,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.UPC_A,
+      ]);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+      const codeReader = new BrowserMultiFormatReader(hints);
       const videoEl = videoRef.current;
       if (!videoEl) return;
 
